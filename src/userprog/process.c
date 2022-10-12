@@ -212,22 +212,21 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-void parse_line(char * file_name){
-  int argc=0;
+int argument_count(char * file_name){
+  int arg=0;
   bool check=false;
   for(int i=0;i<strlen(file_name);i++){ //명령어 개수 세기
       if(file_name[i]==' ' && check==false){
-        argc++;
+        arg++;
         check=true;
       }
       else 
         check=false;
   }
-  argc++;
-  printf("\n\n\n\n\nargc = %d\n\n\n\n\n\n\n", argc);
-  char **argv = (char *)malloc(sizeof(char *) * argc);
+  arg++;
+  //char **argv = (char *)malloc(sizeof(char *) * argc);
 
-
+  return arg;
 }
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
@@ -238,13 +237,26 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
-
+  int argc = 0;
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
-  parse_line(file_name); //문자열 파싱
+  argc = argument_count(file_name); //명령어 개수세기
+  char **argv = (char **)malloc(sizeof(char*)*argc);
+  char *temp;
+  char*next;
+  int cnt=0;
+  temp=strtok_r(file_name, " ", &next);
+  while(temp){
+    argv[cnt]=temp;
+    temp=strtok_r(NULL, " ", &next);
+    cnt++;
+  }
+  //여기까지 argument parsing 완료
+  
+
 
   /* Open executable file. */
   file = filesys_open (file_name);
