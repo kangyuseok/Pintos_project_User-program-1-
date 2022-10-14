@@ -75,7 +75,7 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-  //hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
+  hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -231,18 +231,15 @@ int argument_count(char * file_name){
 void argument_stack(char **parse ,int count ,void **esp){
     int stack_len=0; //word align을 위한 스택 길이 세기
     uint8_t word_align;
-    for(int i=count-1;i>-1;i--){
-      printf("%p\n", parse[i]);
-      for(int j=0;j<strlen(parse[i]);j++){
-          *esp-=1;
-          stack_len+=1;
-          **(char **)esp=parse[i][j];
-          printf("%c",**(char **)esp);
-      }
-      stack_len+=1;
-      *esp-=1;
-      **(char **)esp='\0';
-      printf("\n");
+    printf("I fisrt insert this%p to stack\n", parse[0]); //처음에 이 주소값을 스택에 넣어서 오류 뜸
+    printf("I first insert this%p to stack\n", parse[1]); // 처음에 이 주소값을 스택에 넣어서 오류 뜸
+    for(int i=count-1; i>=0;i--){
+      stack_len+=strlen(parse[i])+1;
+      *esp -=strlen(parse[i])+1;
+      strlcpy(*esp, parse[i], strlen(parse[i])+1);
+      parse[i]= *esp;//********************************여기 부분 다시 생각해보기
+      //스택에서 쌓이는 주소값을 스택에 넣어줘야 하기 때문
+      printf("%s\n", *esp);
     }
     printf("stack_len = %d\n", stack_len);
     //여기 까지 argv 데이터 쌓기
@@ -251,8 +248,6 @@ void argument_stack(char **parse ,int count ,void **esp){
         word_align=0;
     else word_align = 4-(stack_len % 4);
     *esp -= word_align;
-    **(uint32_t **)esp = word_align;
-    printf("%ld\n", **(uint32_t **)esp);
     //여기 까지 word align 데이터 쌓기
 
     *esp -=4;
@@ -263,26 +258,25 @@ void argument_stack(char **parse ,int count ,void **esp){
     for(int i=count -1;i>=0;i--){
         *esp-=4;
         **(uint32_t **)esp = parse[i];
-        printf("%ld\n", **(uint32_t **)esp);
+        printf("%x\n", **(uint32_t **)esp);
 
     }
     //여기 까지 argv[] 주소값 쌓기
-    *esp-=4;
-    **(uint32_t **)esp = parse;
-    printf("%ld\n", **(uint32_t **)esp);
+    *esp-=4; //지금 현재 *esp = 0xbfffffd4
+    **(uint32_t **)esp = *esp +4; //지금 현재 *esp = 0xbfffffd8을 넣어줌
+    printf("%x\n", **(uint32_t **)esp);
     //여기 까지 argv 주소값 쌓기
 
 
     *esp-=4;
     **(uint32_t **)esp = count;
-    printf("%ld\n", **(uint32_t **)esp);
+    printf("%d\n", **(uint32_t **)esp);
     //여기까지 argc 데이터 쌓기
 
     *esp-=4;
     **(uint32_t **)esp =0; 
     printf("%ld\n", **(uint32_t **)esp);
     //여기까지 return address 데이터 쌓기
-
 }
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
@@ -299,6 +293,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
+
   argc = argument_count(file_name); //명령어 개수세기
   char **argv = (char **)malloc(sizeof(char*)*argc);
   char *temp;
@@ -312,7 +307,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   }
   //여기까지 argument parsing 완료
   
-
+  printf("%s\n", file_name);
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
@@ -399,6 +394,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
 
   argument_stack(argv, argc, esp);
+  free(argv);
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
