@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -34,12 +35,21 @@ process_execute (const char *file_name)  //"echo x"
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
+  char temp[258];
+  strlcpy(temp, file_name, strlen(file_name)+1);
+  char *com;
+  char*next;
+  com=strtok_r(temp, " ", &next);
+
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  //printf("com = %s\n", com); // echo
+
+  if(filesys_open(com)==NULL) return -1; //파일 체크
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (com, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -54,7 +64,7 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
-
+  //printf("start_process :%s\n", file_name); //echo x
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -89,11 +99,25 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 { 
-  int a=0;
+  /*int a=0;
   for(int i=0;i<1000000000;i++)
-    a+=1;
+    a+=1;*/
+  int return_value; //exit status를 담을거임
+  struct thread *thread_temp = NULL;
+  struct list_elem *temp;
+  for(temp = list_begin(&(thread_current()->childs));temp!=list_end(&(thread_current()->childs));temp=list_next(temp)){
+    thread_temp = list_entry(temp, struct thread, child_element);
+    if(thread_temp->tid == child_tid){
+      sema_down(&(thread_temp->mutexlock)); //부모 process 이제 wait 함
+      return_value = thread_temp->exit_status;
+      list_remove(&(thread_temp->child_element));
+      sema_up(&(thread_temp->child_memory_guard));
+      return return_value;
+    }
+  }
+
   return -1;
 }
 
@@ -120,6 +144,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  sema_up(&(cur->mutexlock)); //부모 process에게 나 죽었다 알리기 -> 부모는 process_wait의 list_remove 수행
+  sema_down(&cur->child_memory_guard); //자식 process 죽을 때 메모리 살려두기
 }
 
 /* Sets up the CPU for running user code in the current
@@ -305,7 +331,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   
   //printf("%s\n", file_name);
   /* Open executable file. */
-  file = filesys_open (file_name); //echo 가 들어감
+  file = filesys_open (file_name); //echo 가 들어감, 파일 체크
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);

@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-
+#include "synch.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -96,6 +96,11 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct semaphore mutexlock;
+    struct semaphore child_memory_guard; //자식 process가 죽었을 때 메모리는 살려두기 위해
+    int exit_status; //exit 호출 시 종료 sattus
+    struct list childs; //자식 리스트
+    struct list_elem child_element; //자식 리스트 element
 #endif
 
     /* Owned by thread.c. */
