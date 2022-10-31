@@ -451,6 +451,7 @@ is_thread (struct thread *t)
 static void
 init_thread (struct thread *t, const char *name, int priority)
 {
+  //printf("init_thread\n");
   enum intr_level old_level;
 
   ASSERT (t != NULL);
@@ -468,10 +469,12 @@ init_thread (struct thread *t, const char *name, int priority)
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
 
+#ifdef USERPROG
   list_init(&(t->childs)); //리스트 초기화
   sema_init(&(t->mutexlock), 0); //세마포어 초기화
   sema_init(&(t->child_memory_guard), 0);
   list_push_back(&(running_thread()->childs), &(t->child_element));
+#endif
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

@@ -31,23 +31,22 @@ process_execute (const char *file_name)  //"echo x"
 { 
   char *fn_copy;
   tid_t tid;
-
+  struct file*file;
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
-  char temp[258];
+  char *temp=palloc_get_page(0);
   strlcpy(temp, file_name, strlen(file_name)+1);
   char *com;
   char*next;
   com=strtok_r(temp, " ", &next);
-
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
   //printf("com = %s\n", com); // echo
-
-  if(filesys_open(com)==NULL) return -1; //파일 체크
+  file = filesys_open(com);
+  if(file==NULL) return -1; //파일 체크
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (com, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
@@ -71,7 +70,6 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
-  
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -84,7 +82,8 @@ start_process (void *file_name_)
      arguments on the stack in the form of a `struct intr_frame',
      we just point the stack pointer (%esp) to our stack frame
      and jump to it. */
-  hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true); // stack 디버깅용
+  
+  //hex_dump(if_.esp, if_.esp, PHYS_BASE - if_.esp, true); // stack 디버깅용
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
 }
@@ -109,15 +108,16 @@ process_wait (tid_t child_tid)
   struct list_elem *temp;
   for(temp = list_begin(&(thread_current()->childs));temp!=list_end(&(thread_current()->childs));temp=list_next(temp)){
     thread_temp = list_entry(temp, struct thread, child_element);
+    //printf("at process_wait..child_tid : %d thread_tmp->tid : %d\n", child_tid, thread_temp->tid);
     if(thread_temp->tid == child_tid){
       sema_down(&(thread_temp->mutexlock)); //부모 process 이제 wait 함
       return_value = thread_temp->exit_status;
       list_remove(&(thread_temp->child_element));
       sema_up(&(thread_temp->child_memory_guard));
+      //printf("child exit status = %d\n", return_value);
       return return_value;
     }
   }
-
   return -1;
 }
 
@@ -254,21 +254,23 @@ int argument_count(char * file_name){
   return arg;
 }
 void argument_stack(char **parse ,int count ,void **esp){
+    *esp = PHYS_BASE;
     int stack_len=0; //word align을 위한 스택 길이 세기
     uint8_t word_align;
     for(int i=count-1; i>=0;i--){
-      stack_len+=strlen(parse[i])+1;
-      *esp -=strlen(parse[i])+1;
-      strlcpy(*esp, parse[i], strlen(parse[i])+1);
+      stack_len+=(strlen(parse[i])+1);
+      *esp -=(strlen(parse[i])+1);
+      strlcpy(*esp, parse[i], (strlen(parse[i])+1));
       parse[i]= *esp;//********************************여기 부분 다시 생각해보기
       //스택에서 쌓이는 주소값을 스택에 넣어줘야 하기 때문
       //printf("%s\n", *esp);
     }
     //여기 까지 argv 데이터 쌓기
-
+    //printf("stack len = %d\n", stack_len);
     if(stack_len % 4 ==0)
         word_align=0;
     else word_align = 4-(stack_len % 4);
+    //printf("word_align = %d\n", word_align);
     *esp -= word_align;
     //여기 까지 word align 데이터 쌓기
 
@@ -299,6 +301,8 @@ void argument_stack(char **parse ,int count ,void **esp){
     **(uint32_t **)esp =0; 
     //printf("%ld\n", **(uint32_t **)esp);
     //여기까지 return address 데이터 쌓기
+  //hex_dump(*esp, *esp, 100, 1);
+
 }
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
@@ -315,13 +319,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
-
+  
   argc = argument_count(file_name); //명령어 개수세기
   char **argv = (char **)malloc(sizeof(char*)*argc);
+  char *temp2=palloc_get_page(0);
+  strlcpy(temp2, file_name, strlen(file_name)+1);
   char *temp;
   char*next;
   int cnt=0;
-  temp=strtok_r(file_name, " ", &next);
+  temp=strtok_r(temp2, " ", &next);
   while(temp){
     argv[cnt]=temp;
     temp=strtok_r(NULL, " ", &next);
@@ -331,7 +337,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   
   //printf("%s\n", file_name);
   /* Open executable file. */
-  file = filesys_open (file_name); //echo 가 들어감, 파일 체크
+  file = filesys_open (argv[0]); //echo 가 들어감, 파일 체크
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
